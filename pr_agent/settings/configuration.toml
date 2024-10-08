@@ -1,10 +1,10 @@
 [config]
 # models
-model="gpt-4-turbo-2024-04-09"
-model_turbo="gpt-4o-2024-08-06"
-fallback_models=["gpt-4o-2024-05-13"]
+model="bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+model_turbo="bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+fallback_models=["bedrock/anthropic.claude-3-haiku-20240307-v1:0"]
 # CLI
-git_provider="github"
+git_provider="bitbucket_server"
 publish_output=true
 publish_output_progress=true
 verbosity_level=0 # 0,1,2
@@ -267,7 +267,7 @@ avoid_full_files = false
 [bitbucket_server]
 # URL to the BitBucket Server instance
 # url = "https://git.bitbucket.com"
-url = ""
+url = "https://egbitbucket.dtvops.net"
 pr_commands = [
     "/describe --pr_description.final_update_message=false",
     "/review --pr_reviewer.num_code_suggestions=0",
@@ -276,7 +276,7 @@ pr_commands = [
 
 [litellm]
 # use_client = false
-# drop_params = false
+drop_params = true
 enable_callbacks = false
 success_callback = []
 failure_callback = []
