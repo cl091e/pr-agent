@@ -5,9 +5,13 @@ model_turbo="bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
 fallback_models=["bedrock/anthropic.claude-3-haiku-20240307-v1:0"]
 # CLI
 git_provider="bitbucket_server"
+#publish_output=false
+#publish_output_progress=false
+
 publish_output=true
 publish_output_progress=true
-verbosity_level=0 # 0,1,2
+
+verbosity_level=2 # 0,1,2
 use_extra_bad_extensions=false
 # Configurations
 use_wiki_settings_file=true
@@ -25,7 +29,7 @@ patch_extension_skip_types =[".md",".txt"]
 allow_dynamic_context=true
 max_extra_lines_before_dynamic_context = 8 # will try to include up to 10 extra lines before the hunk in the patch, until we reach an enclosing function or class
 patch_extra_lines_before = 3 # Number of extra lines (+3 default ones) to include before each hunk in the patch
-patch_extra_lines_after = 1 # Number of extra lines (+3 default ones) to include after each hunk in the patch
+patch_extra_lines_after = 3 # Number of extra lines (+3 default ones) to include after each hunk in the patch
 secret_provider=""
 cli_mode=false
 ai_disclaimer_title=""  # Pro feature, title for a collapsible disclaimer to AI outputs
@@ -55,12 +59,45 @@ require_security_review=true
 require_soc2_ticket=false
 soc2_ticket_prompt="Does the PR description include a link to ticket in a project management system (e.g., Jira, Asana, Trello, etc.) ?"
 # general options
-num_code_suggestions=0
-inline_code_comments = false
+
+num_code_suggestions=10
+inline_code_comments = true
+
 ask_and_reflect=false
 #automatic_review=true
 persistent_comment=true
-extra_instructions = ""
+
+extra_instructions = """\
+- Limit your suggestions, per suggestion category, to avoid suggesting too many suggestions within the same suggestion category. Balance your suggestions as much as possible between the number of suggestions per suggestion category and the amount of suggestions per code block and file.
+- Suggest Javadoc and KDoc for missing function documentation.
+- Suggest fixes which can prevent possible runtime crashes.
+- Don't suggest nit picky, or nice to have, or name change suggestions.
+- Don't suggest suggestions of medium importance. Only suggest suggestions of important importance.
+- Don't suggest similar suggestions or suggestions which are duplicates of each other or extremely similar.
+- Don't suggest only suggestions of one category. Balance your suggestions so that there is a healthy mix of suggestion categories you suggest.
+- Look for redundant code and suggest reusing existing methods or components where possible.
+- Ensure code adheres to SOLID principles (e.g., single responsibility, open/closed).
+- Suggest proper separation of concerns between business logic, UI code, and data handling.
+- Review the code for potential performance bottlenecks, such as heavy computation on the main thread or inefficient loops.
+- Suggest lazy initialization where possible to avoid unnecessary resource allocation at app startup.
+- Recommend caching strategies for reusable or expensive operations (e.g., network requests, file reads).
+- Suggest deferring resource-heavy tasks to background threads or using efficient data structures to reduce memory footprint.
+- Ensure the code is easy to maintain, with clear, well-organized file structures and meaningful comments where necessary.
+- Recommend modularization, where components are reusable and decoupled, to support future scalability.
+- Suggest adding clear documentation for APIs and complex logic, especially in shared libraries or services.
+- Encourage the use of design patterns (e.g., Factory, Singleton, Observer) where they fit, to improve maintainability.
+- Ensure all potential error conditions are considered and handled appropriately.
+- Review how exceptions are caught and handled, ensuring meaningful error messages and logging for debugging.
+- Suggest centralized error handling to avoid repeating the same logic across multiple files.
+- Encourage fail-safe defaults for critical code paths, avoiding app crashes due to unhandled exceptions or null values.
+- Check for proper handling of sensitive data (e.g., encryption, secure storage) to prevent leaks or breaches.
+- Review code for potential vulnerabilities, such as improper use of user input or hardcoded secrets.
+- Recommend following the principle of least privilege when requesting permissions or accessing resources.
+- Suggest adding security measures such as input validation, output encoding, and proper error handling for user-facing inputs.
+- Suggest writing clear and concise tests, ensuring they are easy to read and understand.
+- Recommend mocking dependencies and external services in tests to isolate functionality and improve test speed.
+    """
+
 final_update_message = true
 # review labels
 enable_review_labels_security=true
@@ -270,7 +307,7 @@ avoid_full_files = false
 url = "https://egbitbucket.dtvops.net"
 pr_commands = [
     "/describe --pr_description.final_update_message=false",
-    "/review --pr_reviewer.num_code_suggestions=0",
+    "/review --pr_reviewer.num_code_suggestions=3",
     "/improve --pr_code_suggestions.commitable_code_suggestions=true --pr_code_suggestions.suggestions_score_threshold=7",
 ]
 
