@@ -3,6 +3,8 @@ from pr_agent.git_providers.bitbucket_provider import BitbucketProvider
 from unittest.mock import MagicMock
 from atlassian.bitbucket import Bitbucket
 from pr_agent.algo.types import EDIT_TYPE, FilePatchInfo
+from pr_agent.algo.language_handler import sort_files_by_main_languages
+from pr_agent.algo.utils import get_settings
 
 
 class TestBitbucketProvider:
@@ -295,3 +297,64 @@ class TestBitbucketServerProvider:
         actual = provider.get_diff_files()
 
         assert actual == expected
+
+    def test_get_languages(self):
+        bitbucket_client = MagicMock(Bitbucket)
+        bitbucket_client.get_pull_request.return_value = {
+            'toRef': {'latestCommit': '9c1cffdd9f276074bfb6fb3b70fbee62d298b058'},
+            'fromRef': {'latestCommit': '2a1165446bdf991caf114d01f7c88d84ae7399cf'}
+        }
+        bitbucket_client.get_pull_requests_commits.return_value = [
+            {'id': '2a1165446bdf991caf114d01f7c88d84ae7399cf',
+             'parents': [{'id': 'f617708826cdd0b40abb5245eda71630192a17e3'}]}
+        ]
+        bitbucket_client.get_commits.return_value = [
+            {'id': '9c1cffdd9f276074bfb6fb3b70fbee62d298b058'},
+            {'id': 'dbca09554567d2e4bee7f07993390153280ee450'}
+        ]
+        bitbucket_client.get_pull_requests_changes.return_value = [
+            {
+                'path': {'toString': 'Readme.md'},
+                'type': 'MODIFY',
+            },
+            {
+                'path': {'toString': 'file1.py'},
+                'type': 'MODIFY',
+            },
+            {
+                'path': {'toString': 'file2.java'},
+                'type': 'MODIFY',
+            },
+            {
+                'path': {'toString': 'file3.kt'},
+                'type': 'MODIFY',
+            }
+        ]
+
+        bitbucket_client.get.side_effect = self.mock_get_from_bitbucket_70
+        bitbucket_client.get_content_of_file.side_effect = self.mock_get_content_of_file
+
+        provider = BitbucketServerProvider(
+            "https://git.onpreminstance.com/projects/AAA/repos/my-repo/pull-requests/1",
+            bitbucket_client=bitbucket_client
+        )
+
+        get_settings().set('repo_metadata.AAA/my-repo', {
+            'languages': ['Kotlin']
+        })
+
+
+
+        expected = {'Kotlin': 0}
+
+        actual = provider.get_languages()
+
+        assert actual == expected
+
+        files = provider.get_diff_files()
+
+        main_lang = sort_files_by_main_languages(actual, files)
+
+        assert main_lang[0]['language'] == 'Kotlin'
+        assert main_lang[1]['language'] == 'Other'
+        

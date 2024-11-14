@@ -22,6 +22,7 @@ class BitbucketServerProvider(GitProvider):
         self.workspace_slug = None
         self.repo_slug = None
         self.repo = None
+        self.metadata = None
         self.pr_num = None
         self.pr = None
         self.pr_url = pr_url
@@ -341,7 +342,12 @@ class BitbucketServerProvider(GitProvider):
         return self.pr.title
 
     def get_languages(self):
-        return {"yaml": 0}  # devops LOL
+        metadata = self._get_metadata()
+        languages = metadata.get("languages", {})
+        return {
+            lang: 0 for lang in languages
+        }
+
 
     def get_pr_branch(self):
         return self.pr.fromRef['displayId']
@@ -454,3 +460,11 @@ class BitbucketServerProvider(GitProvider):
 
     def _get_merge_base(self):
         return f"rest/api/latest/projects/{self.workspace_slug}/repos/{self.repo_slug}/pull-requests/{self.pr_num}/merge-base"
+    
+    def _get_metadata(self):
+        if self.metadata is None:
+            key = f"{self.workspace_slug}/{self.repo_slug}"
+            self.metadata = get_settings().get("repo_metadata", {}).get(key, {})
+        return self.metadata
+    
+

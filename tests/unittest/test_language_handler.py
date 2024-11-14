@@ -102,7 +102,7 @@ class TestSortFilesByMainLanguages:
 
     # Tests general behaviour of function
     def test_general_behaviour_sort_files_by_main_languages(self):
-        languages = {'Python': 10, 'Java': 5, 'C++': 3}
+        languages = {'Python': 10, 'Java': 5, 'C++': 3, 'Kotlin': 1}
         files = [
             type('', (object,), {'filename': 'file1.py'})(),
             type('', (object,), {'filename': 'file2.java'})(),
@@ -112,12 +112,14 @@ class TestSortFilesByMainLanguages:
             type('', (object,), {'filename': 'file6.py'})(),
             type('', (object,), {'filename': 'file7.java'})(),
             type('', (object,), {'filename': 'file8.cpp'})(),
-            type('', (object,), {'filename': 'file9.py'})()
+            type('', (object,), {'filename': 'file9.py'})(),
+            type('', (object,), {'filename': 'file10.kt'})()
         ]
         expected_output = [
             {'language': 'Python', 'files': [files[0], files[3], files[4], files[5], files[8]]},
             {'language': 'Java', 'files': [files[1], files[6]]},
             {'language': 'C++', 'files': [files[2], files[7]]},
+            {'language': 'Kotlin', 'files': [files[9]]},
             {'language': 'Other', 'files': []}
         ]
         assert sort_files_by_main_languages(languages, files) == expected_output
