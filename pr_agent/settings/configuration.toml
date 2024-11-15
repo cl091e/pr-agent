@@ -126,7 +126,7 @@ max_context_tokens=16000
 #
 commitable_code_suggestions = true
 dual_publishing_score_threshold=-1 # -1 to disable, [0-10] to set the threshold (>=) for publishing a code suggestion both in a table and as commitable
-focus_only_on_problems=false
+focus_only_on_problems=true
 #
 extra_instructions = """
 - Limit your suggestions, per suggestion category, to avoid suggesting too many suggestions within the same suggestion category. Balance your suggestions as much as possible between the number of suggestions per suggestion category and the amount of suggestions per code block and file.
