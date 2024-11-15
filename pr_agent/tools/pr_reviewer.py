@@ -1,20 +1,30 @@
 import copy
 import datetime
+import traceback
 from collections import OrderedDict
 from functools import partial
 from typing import List, Tuple
+
 from jinja2 import Environment, StrictUndefined
+
 from pr_agent.algo.ai_handlers.base_ai_handler import BaseAiHandler
 from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
-from pr_agent.algo.pr_processing import get_pr_diff, retry_with_fallback_models, add_ai_metadata_to_diff_files
+from pr_agent.algo.pr_processing import (add_ai_metadata_to_diff_files,
+                                         get_pr_diff,
+                                         retry_with_fallback_models)
 from pr_agent.algo.token_handler import TokenHandler
-from pr_agent.algo.utils import github_action_output, load_yaml, ModelType, \
-    show_relevant_configurations, convert_to_markdown_v2, PRReviewHeader
+from pr_agent.algo.utils import (ModelType, PRReviewHeader,
+                                 convert_to_markdown_v2, github_action_output,
+                                 load_yaml, show_relevant_configurations)
 from pr_agent.config_loader import get_settings
-from pr_agent.git_providers import get_git_provider, get_git_provider_with_context
-from pr_agent.git_providers.git_provider import IncrementalPR, get_main_pr_language
+from pr_agent.git_providers import (get_git_provider,
+                                    get_git_provider_with_context)
+from pr_agent.git_providers.git_provider import (IncrementalPR,
+                                                 get_main_pr_language)
 from pr_agent.log import get_logger
 from pr_agent.servers.help import HelpMessage
+from pr_agent.tools.ticket_pr_compliance_check import (
+    extract_and_cache_pr_tickets, extract_tickets)
 
 
 class PRReviewer:
@@ -84,6 +94,7 @@ class PRReviewer:
             "custom_labels": "",
             "enable_custom_labels": get_settings().config.enable_custom_labels,
             "is_ai_metadata":  get_settings().get("config.enable_ai_metadata", False),
+            "related_tickets": get_settings().get('related_tickets', []),
         }
 
         self.token_handler = TokenHandler(
@@ -120,6 +131,9 @@ class PRReviewer:
             relevant_configs = {'pr_reviewer': dict(get_settings().pr_reviewer),
                                 'config': dict(get_settings().config)}
             get_logger().debug("Relevant configs", artifacts=relevant_configs)
+
+            # ticket extraction if exists
+            await extract_and_cache_pr_tickets(self.git_provider, self.vars)
 
             if self.incremental.is_incremental and hasattr(self.git_provider, "unreviewed_files_set") and not self.git_provider.unreviewed_files_set:
                 get_logger().info(f"Incremental review is enabled for {self.pr_url} but there are no new files")
@@ -207,7 +221,7 @@ class PRReviewer:
         first_key = 'review'
         last_key = 'security_concerns'
         data = load_yaml(self.prediction.strip(),
-                         keys_fix_yaml=["estimated_effort_to_review_[1-5]:", "security_concerns:", "key_issues_to_review:",
+                         keys_fix_yaml=["ticket_compliance_check", "estimated_effort_to_review_[1-5]:", "security_concerns:", "key_issues_to_review:",
                                         "relevant_file:", "relevant_line:", "suggestion:"],
                          first_key=first_key, last_key=last_key)
         github_action_output(data, 'review')
@@ -282,7 +296,7 @@ class PRReviewer:
         first_key = 'review'
         last_key = 'security_concerns'
         data = load_yaml(self.prediction.strip(),
-                         keys_fix_yaml=["estimated_effort_to_review_[1-5]:", "security_concerns:", "key_issues_to_review:",
+                         keys_fix_yaml=["ticket_compliance_check", "estimated_effort_to_review_[1-5]:", "security_concerns:", "key_issues_to_review:",
                                         "relevant_file:", "relevant_line:", "suggestion:"],
                          first_key=first_key, last_key=last_key)
         comments: List[str] = []
@@ -401,7 +415,16 @@ class PRReviewer:
                 review_labels = []
                 if get_settings().pr_reviewer.enable_review_labels_effort:
                     estimated_effort = data['review']['estimated_effort_to_review_[1-5]']
-                    estimated_effort_number = int(estimated_effort.split(',')[0])
+                    estimated_effort_number = 0
+                    if isinstance(estimated_effort, str):
+                        try:
+                            estimated_effort_number = int(estimated_effort.split(',')[0])
+                        except ValueError:
+                            get_logger().warning(f"Invalid estimated_effort value: {estimated_effort}")
+                    elif isinstance(estimated_effort, int):
+                        estimated_effort_number = estimated_effort
+                    else:
+                        get_logger().warning(f"Unexpected type for estimated_effort: {type(estimated_effort)}")
                     if 1 <= estimated_effort_number <= 5:  # 1, because ...
                         review_labels.append(f'Review effort [1-5]: {estimated_effort_number}')
                 if get_settings().pr_reviewer.enable_review_labels_security and get_settings().pr_reviewer.require_security_review:

@@ -75,8 +75,11 @@ async def handle_manifest(request: Request, response: Response):
     return JSONResponse(manifest_obj)
 
 
-async def _perform_commands_bitbucket(commands_conf: str, agent: PRAgent, api_url: str, log_context: dict):
+async def _perform_commands_bitbucket(commands_conf: str, agent: PRAgent, api_url: str, log_context: dict, data: dict):
     apply_repo_settings(api_url)
+    if data.get("event", "") == "pullrequest:created":
+        if not should_process_pr_logic(data):
+            return
     commands = get_settings().get(f"bitbucket_app.{commands_conf}", {})
     get_settings().set("config.is_auto_command", True)
     for command in commands:
@@ -95,11 +98,14 @@ async def _perform_commands_bitbucket(commands_conf: str, agent: PRAgent, api_ur
 
 def is_bot_user(data) -> bool:
     try:
-        if data["data"]["actor"]["type"] != "user":
-            get_logger().info(f"BitBucket actor type is not 'user': {data['data']['actor']['type']}")
+        actor = data.get("data", {}).get("actor", {})
+        # allow actor type: user . if it's "AppUser" or "team" then it is a bot user
+        allowed_actor_types = {"user"}
+        if actor and actor["type"].lower() not in allowed_actor_types:
+            get_logger().info(f"BitBucket actor type is not 'user', skipping: {actor}")
             return True
     except Exception as e:
-        get_logger().error("Failed 'is_bot_user' logic: {e}")
+        get_logger().error(f"Failed 'is_bot_user' logic: {e}")
     return False
 
 
@@ -158,16 +164,18 @@ async def handle_github_webhooks(background_tasks: BackgroundTasks, request: Req
                     return "OK"
 
             # Get the username of the sender
-            try:
-                username = data["data"]["actor"]["username"]
-            except KeyError:
+            actor = data.get("data", {}).get("actor", {})
+            if actor:
                 try:
-                    username = data["data"]["actor"]["display_name"]
+                    username = actor["username"]
                 except KeyError:
-                    username = data["data"]["actor"]["nickname"]
-            log_context["sender"] = username
+                    try:
+                        username = actor["display_name"]
+                    except KeyError:
+                        username = actor["nickname"]
+                log_context["sender"] = username
 
-            sender_id = data["data"]["actor"]["account_id"]
+            sender_id = data.get("data", {}).get("actor", {}).get("account_id", "")
             log_context["sender_id"] = sender_id
             jwt_parts = input_jwt.split(".")
             claim_part = jwt_parts[1]
@@ -193,7 +201,7 @@ async def handle_github_webhooks(background_tasks: BackgroundTasks, request: Req
                         if get_identity_provider().verify_eligibility("bitbucket",
                                                         sender_id, pr_url) is not Eligibility.NOT_ELIGIBLE:
                             if get_settings().get("bitbucket_app.pr_commands"):
-                                await _perform_commands_bitbucket("pr_commands", PRAgent(), pr_url, log_context)
+                                await _perform_commands_bitbucket("pr_commands", PRAgent(), pr_url, log_context, data)
             elif event == "pullrequest:comment_created":
                 pr_url = data["data"]["pullrequest"]["links"]["html"]["href"]
                 log_context["api_url"] = pr_url

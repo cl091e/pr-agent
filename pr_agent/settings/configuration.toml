@@ -10,7 +10,7 @@ git_provider="bitbucket_server"
 
 publish_output=true
 publish_output_progress=true
-
+publish_output_no_suggestions=true
 verbosity_level=2 # 0,1,2
 use_extra_bad_extensions=false
 # Configurations
@@ -55,12 +55,10 @@ require_tests_review=true
 require_estimate_effort_to_review=true
 require_can_be_split_review=false
 require_security_review=true
-# soc2
-require_soc2_ticket=false
-soc2_ticket_prompt="Does the PR description include a link to ticket in a project management system (e.g., Jira, Asana, Trello, etc.) ?"
+require_ticket_analysis_review=true
 # general options
 
-num_code_suggestions=10
+num_code_suggestions=0
 inline_code_comments = true
 
 ask_and_reflect=false
@@ -68,34 +66,13 @@ ask_and_reflect=false
 persistent_comment=true
 
 extra_instructions = """\
-- Limit your suggestions, per suggestion category, to avoid suggesting too many suggestions within the same suggestion category. Balance your suggestions as much as possible between the number of suggestions per suggestion category and the amount of suggestions per code block and file.
-- Suggest Javadoc and KDoc for missing function documentation.
-- Suggest fixes which can prevent possible runtime crashes.
-- Don't suggest nit picky, or nice to have, or name change suggestions.
-- Don't suggest suggestions of medium importance. Only suggest suggestions of important importance.
-- Don't suggest similar suggestions or suggestions which are duplicates of each other or extremely similar.
-- Don't suggest only suggestions of one category. Balance your suggestions so that there is a healthy mix of suggestion categories you suggest.
-- Look for redundant code and suggest reusing existing methods or components where possible.
-- Ensure code adheres to SOLID principles (e.g., single responsibility, open/closed).
-- Suggest proper separation of concerns between business logic, UI code, and data handling.
-- Review the code for potential performance bottlenecks, such as heavy computation on the main thread or inefficient loops.
-- Suggest lazy initialization where possible to avoid unnecessary resource allocation at app startup.
-- Recommend caching strategies for reusable or expensive operations (e.g., network requests, file reads).
-- Suggest deferring resource-heavy tasks to background threads or using efficient data structures to reduce memory footprint.
-- Ensure the code is easy to maintain, with clear, well-organized file structures and meaningful comments where necessary.
-- Recommend modularization, where components are reusable and decoupled, to support future scalability.
-- Suggest adding clear documentation for APIs and complex logic, especially in shared libraries or services.
-- Encourage the use of design patterns (e.g., Factory, Singleton, Observer) where they fit, to improve maintainability.
-- Ensure all potential error conditions are considered and handled appropriately.
-- Review how exceptions are caught and handled, ensuring meaningful error messages and logging for debugging.
-- Suggest centralized error handling to avoid repeating the same logic across multiple files.
-- Encourage fail-safe defaults for critical code paths, avoiding app crashes due to unhandled exceptions or null values.
+- Check for issues which can cause runtime crashes and suggest fixes to prevent them.
+- Check for redundant code and suggest reusing existing methods or components where possible.
 - Check for proper handling of sensitive data (e.g., encryption, secure storage) to prevent leaks or breaches.
-- Review code for potential vulnerabilities, such as improper use of user input or hardcoded secrets.
-- Recommend following the principle of least privilege when requesting permissions or accessing resources.
-- Suggest adding security measures such as input validation, output encoding, and proper error handling for user-facing inputs.
-- Suggest writing clear and concise tests, ensuring they are easy to read and understand.
-- Recommend mocking dependencies and external services in tests to isolate functionality and improve test speed.
+- Check for proper usage of lifecycle methods. Ensure that Android components like Activity and Fragment manage resources appropriately in lifecycle methods. (e.g. releasing resources in onDestory, unregistering listeners in onPause, etc.)
+- Check for potential performance bottlenecks, such as heavy computation on the main thread or inefficient loops.
+- Check for potential vulnerabilities, such as improper use of user input or hardcoded secrets.
+- Check how exceptions are caught and handled, ensuring meaningful error messages and logging for debugging.
     """
 
 final_update_message = true
@@ -106,6 +83,7 @@ enable_review_labels_effort=true
 require_all_thresholds_for_incremental_review=false
 minimal_commits_for_incremental_review=0
 minimal_minutes_for_incremental_review=0
+enable_intro_text=true
 enable_help_text=false # Determines whether to include help text in the PR review. Enabled by default.
 # auto approval
 enable_auto_approval=false
@@ -113,7 +91,7 @@ maximal_review_effort=5
 
 
 [pr_description] # /describe #
-publish_labels=true
+publish_labels=false
 add_original_user_description=true
 generate_ai_title=false
 use_bullet_points=true
@@ -144,12 +122,32 @@ enable_help_text=false
 
 
 [pr_code_suggestions] # /improve #
-max_context_tokens=14000
-commitable_code_suggestions = false
-extra_instructions = ""
+max_context_tokens=16000
+#
+commitable_code_suggestions = true
+dual_publishing_score_threshold=-1 # -1 to disable, [0-10] to set the threshold (>=) for publishing a code suggestion both in a table and as commitable
+focus_only_on_problems=true
+#
+extra_instructions = """
+- Limit your suggestions, per suggestion category, to avoid suggesting too many suggestions within the same suggestion category. Balance your suggestions as much as possible between the number of suggestions per suggestion category and the amount of suggestions per code block and file.
+- Don't suggest suggestions of low or medium importance. Only suggest suggestions of important importance.
+- Don't suggest nit-picky, or nice-to-have, or name change suggestions. Avoid overly trivial suggestions, these types of suggestions are of low importance.
+- Don't suggest only suggestions of one category. Balance your suggestions so that there is a healthy mix of suggestion categories you suggest.
+- Don't suggest multiple similar suggestions, or suggestions which are duplicates of each other, or are extremely similar. Group similar issues into one suggestion if possible.
+- Suggest Javadoc and KDoc for missing function documentation.
+- Suggest proper separation of concerns between business logic, UI code, and data handling.
+- Suggest the use of design patterns (e.g., Factory, Singleton, Observer) where they fit, to improve maintainability.
+- Suggest adding security measures such as input validation, output encoding, and proper error handling for user-facing inputs.
+- Suggest deferring resource-heavy tasks to background threads or using efficient data structures to reduce memory footprint.
+- Suggest writing tests, if tests are missing or test coverage is lacking.
+- Suggest mocking dependencies and external services in tests to isolate functionality and improve test speed.
+- Suggest adding clear documentation for APIs and complex logic, especially in shared libraries or services.
+- Suggest caching strategies for reusable or expensive operations (e.g., network requests, file reads).
+- Suggest fail-safe defaults for critical code paths, avoiding app crashes due to unhandled exceptions or null values.
+"""
 rank_suggestions = false
 enable_help_text=false
-enable_chat_text=true
+enable_chat_text=false
 enable_intro_text=true
 persistent_comment=true
 max_history_len=4
@@ -157,7 +155,7 @@ max_history_len=4
 apply_suggestions_checkbox=true
 # suggestions scoring
 self_reflect_on_suggestions=true
-suggestions_score_threshold=0 # [0-10]. highly recommend not to set this value above 8, since above it may clip highly relevant suggestions
+suggestions_score_threshold=7 # [0-10]| recommend not to set this value above 8, since above it may clip highly relevant suggestions
 # params for '/improve --extended' mode
 auto_extended_mode=true
 num_code_suggestions_per_chunk=4
@@ -169,8 +167,10 @@ final_clip_factor = 0.8
 demand_code_suggestions_self_review=false # add a checkbox for the author to self-review the code suggestions
 code_suggestions_self_review_text= "**Author self-review**: I have reviewed the PR code suggestions, and addressed the relevant ones."
 approve_pr_on_self_review=false # Pro feature. if true, the PR will be auto-approved after the author clicks on the self-review checkbox
-# Suggestion impact
+fold_suggestions_on_self_review=true # Pro feature. if true, the code suggestions will be folded after the author clicks on the self-review checkbox
+# Suggestion impact 💎
 publish_post_process_suggestion_impact=true
+wiki_page_accepted_suggestions=true
 
 [pr_custom_prompt] # /custom_prompt #
 prompt = """\
