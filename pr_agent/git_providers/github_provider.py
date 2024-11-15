@@ -1,22 +1,26 @@
+import hashlib
 import itertools
 import time
-import hashlib
+import traceback
 from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
-from github import AppAuthentication, Auth, Github, GithubException
+from github import AppAuthentication, Auth, Github
 from retry import retry
 from starlette_context import context
 
 from ..algo.file_filter import filter_ignored
 from ..algo.language_handler import is_valid_file
-from ..algo.utils import PRReviewHeader, load_large_diff, clip_tokens, find_line_number_of_relevant_line_in_file, Range
+from ..algo.types import EDIT_TYPE
+from ..algo.utils import (PRReviewHeader, Range, clip_tokens,
+                          find_line_number_of_relevant_line_in_file,
+                          load_large_diff)
 from ..config_loader import get_settings
 from ..log import get_logger
 from ..servers.utils import RateLimitExceeded
-from .git_provider import GitProvider, IncrementalPR, MAX_FILES_ALLOWED_FULL
-from pr_agent.algo.types import EDIT_TYPE, FilePatchInfo
+from .git_provider import (MAX_FILES_ALLOWED_FULL, FilePatchInfo, GitProvider,
+                           IncrementalPR)
 
 
 class GithubProvider(GitProvider):
@@ -27,10 +31,8 @@ class GithubProvider(GitProvider):
         except Exception:
             self.installation_id = None
         self.max_comment_chars = 65000
-        self.base_url = get_settings().get("GITHUB.BASE_URL", "https://api.github.com").rstrip("/")
+        self.base_url = get_settings().get("GITHUB.BASE_URL", "https://api.github.com").rstrip("/") # "https://api.github.com"
         self.base_url_html = self.base_url.split("api/")[0].rstrip("/") if "api/" in self.base_url else "https://github.com"
-        self.base_domain = self.base_url.replace("https://", "").replace("http://", "")
-        self.base_domain_html = self.base_url_html.replace("https://", "").replace("http://", "")
         self.github_client = self._get_github_client()
         self.repo = None
         self.pr_num = None
@@ -197,7 +199,24 @@ class GithubProvider(GitProvider):
                     if avoid_load:
                         original_file_content_str = ""
                     else:
-                        original_file_content_str = self._get_pr_file_content(file, self.pr.base.sha)
+                        # The base.sha will point to the current state of the base branch (including parallel merges), not the original base commit when the PR was created
+                        # We can fix this by finding the merge base commit between the PR head and base branches
+                        # Note that The pr.head.sha is actually correct as is - it points to the latest commit in your PR branch.
+                        # This SHA isn't affected by parallel merges to the base branch since it's specific to your PR's branch.
+                        repo = self.repo_obj
+                        pr = self.pr
+                        try:
+                            compare = repo.compare(pr.base.sha, pr.head.sha)
+                            merge_base_commit = compare.merge_base_commit
+                        except Exception as e:
+                            get_logger().error(f"Failed to get merge base commit: {e}")
+                            merge_base_commit = pr.base
+                        if merge_base_commit.sha != pr.base.sha:
+                            get_logger().info(
+                                f"Using merge base commit {merge_base_commit.sha} instead of base commit "
+                                f"{pr.base.sha} for {file.filename}")
+                        original_file_content_str = self._get_pr_file_content(file, merge_base_commit.sha)
+
                     if not patch:
                         patch = load_large_diff(file.filename, new_file_content_str, original_file_content_str)
 
@@ -233,8 +252,9 @@ class GithubProvider(GitProvider):
 
             return diff_files
 
-        except GithubException.RateLimitExceededException as e:
-            get_logger().error(f"Rate limit exceeded for GitHub API. Original message: {e}")
+        except Exception as e:
+            get_logger().error(f"Failing to get diff files: {e}",
+                               artifact={"traceback": traceback.format_exc()})
             raise RateLimitExceeded("Rate limit exceeded for GitHub API.") from e
 
     def publish_description(self, pr_title: str, pr_body: str):
@@ -256,7 +276,7 @@ class GithubProvider(GitProvider):
     def publish_comment(self, pr_comment: str, is_temporary: bool = False):
         if is_temporary and not get_settings().config.publish_output_progress:
             get_logger().debug(f"Skipping publish_comment for temporary comment: {pr_comment}")
-            return
+            return None
         pr_comment = self.limit_output_characters(pr_comment, self.max_comment_chars)
         response = self.pr.create_issue_comment(pr_comment)
         if hasattr(response, "user") and hasattr(response.user, "login"):
@@ -280,8 +300,7 @@ class GithubProvider(GitProvider):
                                                                                 relevant_line_in_file,
                                                                                 absolute_position)
         if position == -1:
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().info(f"Could not find position for {relevant_file} {relevant_line_in_file}")
+            get_logger().info(f"Could not find position for {relevant_file} {relevant_line_in_file}")
             subject_type = "FILE"
         else:
             subject_type = "LINE"
@@ -293,11 +312,9 @@ class GithubProvider(GitProvider):
             # publish all comments in a single message
             self.pr.create_review(commit=self.last_commit_id, comments=comments)
         except Exception as e:
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().error(f"Failed to publish inline comments")
+            get_logger().info(f"Initially failed to publish inline comments as committable")
 
-            if (getattr(e, "status", None) == 422
-                    and get_settings().github.publish_inline_comments_fallback_with_verification and not disable_fallback):
+            if (getattr(e, "status", None) == 422 and not disable_fallback):
                 pass  # continue to try _publish_inline_comments_fallback_with_verification
             else:
                 raise e # will end up with publishing the comments one by one
@@ -305,8 +322,7 @@ class GithubProvider(GitProvider):
             try:
                 self._publish_inline_comments_fallback_with_verification(comments)
             except Exception as e:
-                if get_settings().config.verbosity_level >= 2:
-                    get_logger().error(f"Failed to publish inline code comments fallback, error: {e}")
+                get_logger().error(f"Failed to publish inline code comments fallback, error: {e}")
                 raise e
 
     def _publish_inline_comments_fallback_with_verification(self, comments: list[dict]):
@@ -331,11 +347,9 @@ class GithubProvider(GitProvider):
             for comment in fixed_comments_as_one_liner:
                 try:
                     self.publish_inline_comments([comment], disable_fallback=True)
-                    if get_settings().config.verbosity_level >= 2:
-                        get_logger().info(f"Published invalid comment as a single line comment: {comment}")
+                    get_logger().info(f"Published invalid comment as a single line comment: {comment}")
                 except:
-                    if get_settings().config.verbosity_level >= 2:
-                        get_logger().error(f"Failed to publish invalid comment as a single line comment: {comment}")
+                    get_logger().error(f"Failed to publish invalid comment as a single line comment: {comment}")
 
     def _verify_code_comment(self, comment: dict):
         is_verified = False
@@ -393,8 +407,7 @@ class GithubProvider(GitProvider):
                 if fixed_comment != comment:
                     fixed_comments.append(fixed_comment)
             except Exception as e:
-                if get_settings().config.verbosity_level >= 2:
-                    get_logger().error(f"Failed to fix inline comment, error: {e}")
+                get_logger().error(f"Failed to fix inline comment, error: {e}")
         return fixed_comments
 
     def publish_code_suggestions(self, code_suggestions: list) -> bool:
@@ -409,16 +422,14 @@ class GithubProvider(GitProvider):
             relevant_lines_end = suggestion['relevant_lines_end']
 
             if not relevant_lines_start or relevant_lines_start == -1:
-                if get_settings().config.verbosity_level >= 2:
-                    get_logger().exception(
-                        f"Failed to publish code suggestion, relevant_lines_start is {relevant_lines_start}")
+                get_logger().exception(
+                    f"Failed to publish code suggestion, relevant_lines_start is {relevant_lines_start}")
                 continue
 
             if relevant_lines_end < relevant_lines_start:
-                if get_settings().config.verbosity_level >= 2:
-                    get_logger().exception(f"Failed to publish code suggestion, "
-                                      f"relevant_lines_end is {relevant_lines_end} and "
-                                      f"relevant_lines_start is {relevant_lines_start}")
+                get_logger().exception(f"Failed to publish code suggestion, "
+                                  f"relevant_lines_end is {relevant_lines_end} and "
+                                  f"relevant_lines_start is {relevant_lines_start}")
                 continue
 
             if relevant_lines_end > relevant_lines_start:
@@ -442,8 +453,7 @@ class GithubProvider(GitProvider):
             self.publish_inline_comments(post_parameters_list)
             return True
         except Exception as e:
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().error(f"Failed to publish code suggestion, error: {e}")
+            get_logger().error(f"Failed to publish code suggestion, error: {e}")
             return False
 
     def edit_comment(self, comment, body: str):
@@ -502,6 +512,7 @@ class GithubProvider(GitProvider):
                     elif self.deployment_type == 'user':
                         same_comment_creator = self.github_user_id == existing_comment['user']['login']
                     if existing_comment['subject_type'] == 'file' and comment['path'] == existing_comment['path'] and same_comment_creator:
+
                         headers, data_patch = self.pr._requester.requestJsonAndCheck(
                             "PATCH", f"{self.base_url}/repos/{self.repo}/pulls/comments/{existing_comment['id']}", input={"body":comment['body']}
                         )
@@ -513,8 +524,7 @@ class GithubProvider(GitProvider):
                     )
             return True
         except Exception as e:
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().error(f"Failed to publish diffview file summary, error: {e}")
+            get_logger().error(f"Failed to publish diffview file summary, error: {e}")
             return False
 
     def remove_initial_comment(self):
@@ -611,8 +621,11 @@ class GithubProvider(GitProvider):
     def _parse_pr_url(self, pr_url: str) -> Tuple[str, int]:
         parsed_url = urlparse(pr_url)
 
+        if parsed_url.path.startswith('/api/v3'):
+            parsed_url = urlparse(pr_url.replace("/api/v3", ""))
+
         path_parts = parsed_url.path.strip('/').split('/')
-        if self.base_domain in parsed_url.netloc:
+        if 'api.github.com' in parsed_url.netloc or '/api/v3' in pr_url:
             if len(path_parts) < 5 or path_parts[3] != 'pulls':
                 raise ValueError("The provided URL does not appear to be a GitHub PR URL")
             repo_name = '/'.join(path_parts[1:3])
@@ -635,8 +648,12 @@ class GithubProvider(GitProvider):
 
     def _parse_issue_url(self, issue_url: str) -> Tuple[str, int]:
         parsed_url = urlparse(issue_url)
+
+        if 'github.com' not in parsed_url.netloc:
+            raise ValueError("The provided URL is not a valid GitHub URL")
+
         path_parts = parsed_url.path.strip('/').split('/')
-        if self.base_domain in parsed_url.netloc:
+        if 'api.github.com' in parsed_url.netloc:
             if len(path_parts) < 5 or path_parts[3] != 'issues':
                 raise ValueError("The provided URL does not appear to be a GitHub ISSUE URL")
             repo_name = '/'.join(path_parts[1:3])
@@ -795,8 +812,7 @@ class GithubProvider(GitProvider):
                 link = f"{self.base_url_html}/{self.repo}/pull/{self.pr_num}/files#diff-{sha_file}R{absolute_position}"
                 return link
         except Exception as e:
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().info(f"Failed adding line link, error: {e}")
+            get_logger().info(f"Failed adding line link, error: {e}")
 
         return ""
 

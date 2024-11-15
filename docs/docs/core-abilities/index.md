@@ -1,6 +1,7 @@
 # Core Abilities
 Qodo Merge utilizes a variety of core abilities to provide a comprehensive and efficient code review experience. These abilities include:
 
+- [Fetching ticket context](https://qodo-merge-docs.qodo.ai/core-abilities/fetching_ticket_context/)
 - [Local and global metadata](https://qodo-merge-docs.qodo.ai/core-abilities/metadata/)
 - [Dynamic context](https://qodo-merge-docs.qodo.ai/core-abilities/dynamic_context/)
 - [Self-reflection](https://qodo-merge-docs.qodo.ai/core-abilities/self_reflection/)
@@ -13,7 +14,7 @@ Qodo Merge utilizes a variety of core abilities to provide a comprehensive and e
 
 ## Blogs
 
-Here are some additional technical blogs from Qodo, that delve deeper into the core capabilities and features of Large Language Models (LLMs) when applied to coding tasks. 
+Here are some additional technical blogs from Qodo, that delve deeper into the core capabilities and features of Large Language Models (LLMs) when applied to coding tasks.
 These resources provide more comprehensive insights into leveraging LLMs for software development.
 
 ### Code Generation and LLMs

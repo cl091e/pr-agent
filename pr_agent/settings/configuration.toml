@@ -7,6 +7,7 @@ fallback_models=["gpt-4o-2024-05-13"]
 git_provider="github"
 publish_output=true
 publish_output_progress=true
+publish_output_no_suggestions=true
 verbosity_level=0 # 0,1,2
 use_extra_bad_extensions=false
 # Configurations
@@ -51,9 +52,7 @@ require_tests_review=true
 require_estimate_effort_to_review=true
 require_can_be_split_review=false
 require_security_review=true
-# soc2
-require_soc2_ticket=false
-soc2_ticket_prompt="Does the PR description include a link to ticket in a project management system (e.g., Jira, Asana, Trello, etc.) ?"
+require_ticket_analysis_review=true
 # general options
 num_code_suggestions=0
 inline_code_comments = false
@@ -77,7 +76,7 @@ maximal_review_effort=5
 
 
 [pr_description] # /describe #
-publish_labels=true
+publish_labels=false
 add_original_user_description=true
 generate_ai_title=false
 use_bullet_points=true
@@ -108,10 +107,11 @@ enable_help_text=false
 
 
 [pr_code_suggestions] # /improve #
-max_context_tokens=14000
+max_context_tokens=16000
 #
 commitable_code_suggestions = false
 dual_publishing_score_threshold=-1 # -1 to disable, [0-10] to set the threshold (>=) for publishing a code suggestion both in a table and as commitable
+focus_only_on_problems=false
 #
 extra_instructions = ""
 rank_suggestions = false
@@ -123,7 +123,6 @@ max_history_len=4
 # enable to apply suggestion 💎
 apply_suggestions_checkbox=true
 # suggestions scoring
-self_reflect_on_suggestions=true
 suggestions_score_threshold=0 # [0-10]| recommend not to set this value above 8, since above it may clip highly relevant suggestions
 # params for '/improve --extended' mode
 auto_extended_mode=true
@@ -136,8 +135,10 @@ final_clip_factor = 0.8
 demand_code_suggestions_self_review=false # add a checkbox for the author to self-review the code suggestions
 code_suggestions_self_review_text= "**Author self-review**: I have reviewed the PR code suggestions, and addressed the relevant ones."
 approve_pr_on_self_review=false # Pro feature. if true, the PR will be auto-approved after the author clicks on the self-review checkbox
-# Suggestion impact
+fold_suggestions_on_self_review=true # Pro feature. if true, the code suggestions will be folded after the author clicks on the self-review checkbox
+# Suggestion impact 💎
 publish_post_process_suggestion_impact=true
+wiki_page_accepted_suggestions=true
 
 [pr_custom_prompt] # /custom_prompt #
 prompt = """\
