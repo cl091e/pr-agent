@@ -30,6 +30,7 @@ global_settings = Dynaconf(
         "settings/custom_labels.toml",
         "settings/pr_help_prompts.toml",
         "settings_prod/.secrets.toml",
+        "settings/.repo_metadata.toml",
     ]]
 )
 
