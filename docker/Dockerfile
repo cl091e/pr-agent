@@ -1,10 +1,10 @@
 FROM python:3.12.3 AS base
 
 WORKDIR /app
-ADD docs/chroma_db.zip /app/docs/chroma_db.zip
 ADD pyproject.toml .
 ADD requirements.txt .
-RUN pip install . && rm pyproject.toml requirements.txt
+ADD docs docs
+RUN pip install --proxy=http://sub.proxy.att.com:8080 --default-timeout=100  --trusted-host pypi.org --trusted-host files.pythonhosted.org . && rm pyproject.toml requirements.txt
 ENV PYTHONPATH=/app
 
 FROM base AS github_app

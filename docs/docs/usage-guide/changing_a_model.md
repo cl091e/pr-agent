@@ -9,7 +9,7 @@ model_turbo = "..."
 fallback_models = ["..."]
 ```
 
-For models and environments not from OpenAI, you might need to provide additional keys and other parameters. 
+For models and environments not from OpenAI, you might need to provide additional keys and other parameters.
 You can give parameters via a configuration file (see below for instructions), or from environment variables. See [litellm documentation](https://litellm.vercel.app/docs/proxy/quick_start#supported-llms) for the environment variables relevant per model.
 
 ### Azure
@@ -108,7 +108,7 @@ To use Llama3 model with Groq, for example, set:
 [config] # in configuration.toml
 model = "llama3-70b-8192"
 model_turbo = "llama3-70b-8192"
-fallback_models = ["groq/llama3-70b-8192"] 
+fallback_models = ["groq/llama3-70b-8192"]
 [groq] # in .secrets.toml
 key = ... # your Groq api key
 ```
@@ -118,7 +118,7 @@ key = ... # your Groq api key
 
 To use Google's Vertex AI platform and its associated models (chat-bison/codechat-bison) set:
 
-``` 
+```
 [config] # in configuration.toml
 model = "vertex_ai/codechat-bison"
 model_turbo = "vertex_ai/codechat-bison"
@@ -133,9 +133,26 @@ Your [application default credentials](https://cloud.google.com/docs/authenticat
 
 If you do want to set explicit credentials, then you can use the `GOOGLE_APPLICATION_CREDENTIALS` environment variable set to a path to a json credentials file.
 
+### Google AI Studio
+
+To use [Google AI Studio](https://aistudio.google.com/) models, set the relevant models in the configuration section of the configuration file:
+
+```toml
+[config] # in configuration.toml
+model="google_ai_studio/gemini-1.5-flash"
+model_turbo="google_ai_studio/gemini-1.5-flash"
+fallback_models=["google_ai_studio/gemini-1.5-flash"]
+
+[google_ai_studio] # in .secrets.toml
+gemini_api_key = "..."
+```
+
+If you don't want to set the API key in the .secrets.toml file, you can set the `GOOGLE_AI_STUDIO.GEMINI_API_KEY` environment variable.
+
 ### Anthropic
 
 To use Anthropic models, set the relevant models in the configuration section of the configuration file:
+
 ```
 [config]
 model="anthropic/claude-3-opus-20240229"
@@ -153,7 +170,7 @@ KEY = "..."
 
 To use Amazon Bedrock and its foundational models, add the below configuration:
 
-``` 
+```
 [config] # in configuration.toml
 model="bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
 model_turbo="bedrock/anthropic.claude-3-sonnet-20240229-v1:0"

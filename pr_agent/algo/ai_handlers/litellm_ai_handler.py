@@ -1,7 +1,8 @@
 import os
-import requests
+
 import litellm
 import openai
+import requests
 from litellm import acompletion
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
@@ -83,6 +84,11 @@ class LiteLLMAIHandler(BaseAiHandler):
             litellm.vertex_location = get_settings().get(
                 "VERTEXAI.VERTEX_LOCATION", None
             )
+        # Google AI Studio
+        # SEE https://docs.litellm.ai/docs/providers/gemini
+        if get_settings().get("GOOGLE_AI_STUDIO.GEMINI_API_KEY", None):
+          os.environ["GEMINI_API_KEY"] = get_settings().google_ai_studio.gemini_api_key
+
     def prepare_logs(self, response, system, user, resp, finish_reason):
         response_log = response.dict().copy()
         response_log['system'] = system
@@ -171,6 +177,7 @@ class LiteLLMAIHandler(BaseAiHandler):
                 get_logger().warning(
                     "Empty system prompt for claude model. Adding a newline character to prevent OpenAI API error.")
             messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
             if img_path:
                 try:
                     # check if the image link is alive
@@ -185,14 +192,30 @@ class LiteLLMAIHandler(BaseAiHandler):
                 messages[1]["content"] = [{"type": "text", "text": messages[1]["content"]},
                                           {"type": "image_url", "image_url": {"url": img_path}}]
 
-            kwargs = {
-                "model": model,
-                "deployment_id": deployment_id,
-                "messages": messages,
-                "temperature": temperature,
-                "timeout": get_settings().config.ai_timeout,
-                "api_base": self.api_base,
-            }
+            # Currently O1 does not support separate system and user prompts
+            O1_MODEL_PREFIX = 'o1-'
+            model_type = model.split('/')[-1] if '/' in model else model
+            if model_type.startswith(O1_MODEL_PREFIX):
+                user = f"{system}\n\n\n{user}"
+                system = ""
+                get_logger().info(f"Using O1 model, combining system and user prompts")
+                messages = [{"role": "user", "content": user}]
+                kwargs = {
+                    "model": model,
+                    "deployment_id": deployment_id,
+                    "messages": messages,
+                    "timeout": get_settings().config.ai_timeout,
+                    "api_base": self.api_base,
+                }
+            else:
+                kwargs = {
+                    "model": model,
+                    "deployment_id": deployment_id,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "timeout": get_settings().config.ai_timeout,
+                    "api_base": self.api_base,
+                }
 
             if get_settings().litellm.get("enable_callbacks", False):
                 kwargs = self.add_litellm_callbacks(kwargs)

@@ -9,17 +9,24 @@ from jinja2 import Environment, StrictUndefined
 
 from pr_agent.algo.ai_handlers.base_ai_handler import BaseAiHandler
 from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
-from pr_agent.algo.pr_processing import get_pr_diff, retry_with_fallback_models, get_pr_diff_multiple_patchs, \
-    OUTPUT_BUFFER_TOKENS_HARD_THRESHOLD
+from pr_agent.algo.pr_processing import (OUTPUT_BUFFER_TOKENS_HARD_THRESHOLD,
+                                         get_pr_diff,
+                                         get_pr_diff_multiple_patchs,
+                                         retry_with_fallback_models)
 from pr_agent.algo.token_handler import TokenHandler
-from pr_agent.algo.utils import set_custom_labels
-from pr_agent.algo.utils import load_yaml, get_user_labels, ModelType, show_relevant_configurations, get_max_tokens, \
-    clip_tokens
+from pr_agent.algo.utils import (ModelType, PRDescriptionHeader, clip_tokens,
+                                 get_max_tokens, get_user_labels, load_yaml,
+                                 set_custom_labels,
+                                 show_relevant_configurations)
 from pr_agent.config_loader import get_settings
-from pr_agent.git_providers import get_git_provider, GithubProvider, get_git_provider_with_context
+from pr_agent.git_providers import (GithubProvider, get_git_provider,
+                                    get_git_provider_with_context)
 from pr_agent.git_providers.git_provider import get_main_pr_language
 from pr_agent.log import get_logger
 from pr_agent.servers.help import HelpMessage
+from pr_agent.tools.ticket_pr_compliance_check import (
+    extract_and_cache_pr_tickets, extract_ticket_links_from_pr_description,
+    extract_tickets)
 
 
 class PRDescription:
@@ -38,6 +45,7 @@ class PRDescription:
             self.git_provider.get_languages(), self.git_provider.get_files()
         )
         self.pr_id = self.git_provider.get_pr_id()
+        self.keys_fix = ["filename:", "language:", "changes_summary:", "changes_title:", "description:", "title:"]
 
         if get_settings().pr_description.enable_semantic_files_types and not self.git_provider.is_supported(
                 "gfm_markdown"):
@@ -60,6 +68,7 @@ class PRDescription:
             "enable_custom_labels": get_settings().config.enable_custom_labels,
             "custom_labels_class": "",  # will be filled if necessary in 'set_custom_labels' function
             "enable_semantic_files_types": get_settings().pr_description.enable_semantic_files_types,
+            "related_tickets": "",
         }
 
         self.user_description = self.git_provider.get_user_description()
@@ -86,6 +95,9 @@ class PRDescription:
             get_logger().debug("Relevant configs", artifacts=relevant_configs)
             if get_settings().config.publish_output and not get_settings().config.get('is_auto_command', False):
                 self.git_provider.publish_comment("Preparing PR description...", is_temporary=True)
+
+            # ticket extraction if exists
+            await extract_and_cache_pr_tickets(self.git_provider, self.vars)
 
             await retry_with_fallback_models(self._prepare_prediction, ModelType.TURBO)
 
@@ -126,7 +138,7 @@ class PRDescription:
 
             if get_settings().config.publish_output:
                 # publish labels
-                if get_settings().pr_description.publish_labels and self.git_provider.is_supported("get_labels"):
+                if get_settings().pr_description.publish_labels and pr_labels and self.git_provider.is_supported("get_labels"):
                     original_labels = self.git_provider.get_pr_labels(update=True)
                     get_logger().debug(f"original labels", artifact=original_labels)
                     user_labels = get_user_labels(original_labels)
@@ -226,7 +238,7 @@ class PRDescription:
             file_description_str_list = []
             for i, result in enumerate(results):
                 prediction_files = result.strip().removeprefix('```yaml').strip('`').strip()
-                if load_yaml(prediction_files) and prediction_files.startswith('pr_files'):
+                if load_yaml(prediction_files, keys_fix_yaml=self.keys_fix) and prediction_files.startswith('pr_files'):
                     prediction_files = prediction_files.removeprefix('pr_files:').strip()
                     file_description_str_list.append(prediction_files)
                 else:
@@ -290,7 +302,7 @@ class PRDescription:
                     files_walkthrough = files_walkthrough.strip() + "\n" + extra_file_yaml.strip()
                     if i >= MAX_EXTRA_FILES_TO_OUTPUT:
                         files_walkthrough += f"""\
-extra_file_yaml = 
+extra_file_yaml =
 - filename: |
     Additional {len(remaining_files_list) - MAX_EXTRA_FILES_TO_OUTPUT} files not shown
   changes_summary: |
@@ -304,16 +316,16 @@ extra_file_yaml =
 
             # final processing
             self.prediction = prediction_headers + "\n" + "pr_files:\n" + files_walkthrough
-            if not load_yaml(self.prediction):
+            if not load_yaml(self.prediction, keys_fix_yaml=self.keys_fix):
                 get_logger().error(f"Error getting valid YAML in large PR handling for describe {self.pr_id}")
-                if load_yaml(prediction_headers):
+                if load_yaml(prediction_headers, keys_fix_yaml=self.keys_fix):
                     get_logger().debug(f"Using only headers for describe {self.pr_id}")
                     self.prediction = prediction_headers
 
     async def extend_additional_files(self, remaining_files_list) -> str:
         prediction = self.prediction
         try:
-            original_prediction_dict = load_yaml(self.prediction)
+            original_prediction_dict = load_yaml(self.prediction, keys_fix_yaml=self.keys_fix)
             prediction_extra = "pr_files:"
             for file in remaining_files_list:
                 extra_file_yaml = f"""\
@@ -327,12 +339,12 @@ extra_file_yaml =
     additional files (token-limit)
 """
                 prediction_extra = prediction_extra + "\n" + extra_file_yaml.strip()
-            prediction_extra_dict = load_yaml(prediction_extra)
+            prediction_extra_dict = load_yaml(prediction_extra, keys_fix_yaml=self.keys_fix)
             # merge the two dictionaries
             if isinstance(original_prediction_dict, dict) and isinstance(prediction_extra_dict, dict):
                 original_prediction_dict["pr_files"].extend(prediction_extra_dict["pr_files"])
                 new_yaml = yaml.dump(original_prediction_dict)
-                if load_yaml(new_yaml):
+                if load_yaml(new_yaml, keys_fix_yaml=self.keys_fix):
                     prediction = new_yaml
             return prediction
         except Exception as e:
@@ -361,7 +373,7 @@ extra_file_yaml =
 
     def _prepare_data(self):
         # Load the AI prediction data into a dictionary
-        self.data = load_yaml(self.prediction.strip())
+        self.data = load_yaml(self.prediction.strip(), keys_fix_yaml=self.keys_fix)
 
         if get_settings().pr_description.add_original_user_description and self.user_description:
             self.data["User Description"] = self.user_description
@@ -494,7 +506,7 @@ extra_file_yaml =
                     pr_body += "</details>\n"
             elif 'pr_files' in key.lower() and get_settings().pr_description.enable_semantic_files_types:
                 changes_walkthrough, pr_file_changes = self.process_pr_files_prediction(changes_walkthrough, value)
-                changes_walkthrough = f"### **Changes walkthrough** 📝\n{changes_walkthrough}"
+                changes_walkthrough = f"{PRDescriptionHeader.CHANGES_WALKTHROUGH.value}\n{changes_walkthrough}"
             else:
                 # if the value is a list, join its items by comma
                 if isinstance(value, list):
@@ -604,7 +616,7 @@ extra_file_yaml =
   </td>
   <td><a href="{link}">{diff_plus_minus}</a>{delta_nbsp}</td>
 
-</tr>                    
+</tr>
 """
                 if use_collapsible_file_list:
                     pr_body += """</table></details></td></tr>"""
